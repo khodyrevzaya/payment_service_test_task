@@ -24,3 +24,4 @@ class NotificationStatus(str, enum.Enum):
 class OutboxStatus(str, enum.Enum):
     pending = "pending"
     published = "published"
+    dead = "dead"

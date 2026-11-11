@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 
 from faststream.exceptions import RejectMessage
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.base import async_session_factory
 from src.db.enums import NotificationStatus, PaymentStatus
@@ -20,11 +19,14 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1  # seconds: 1s → 2s → 4s
 
+# Errors that should NOT be retried (will go straight to DLQ)
+NON_RETRYABLE_ERRORS = (ValueError,)
+
 
 def _deterministic_outcome(payment_id: uuid.UUID) -> tuple[bool, float]:
     """Deterministic payment outcome based on payment_id hash."""
     h = hashlib.sha256(str(payment_id).encode()).hexdigest()
-    success = int(h[:2], 16) % 100 < 100  # 100% success for testing
+    success = int(h[:2], 16) % 100 < 90
     delay = 2 + int(h[2:4], 16) % 4
     return success, delay
 
@@ -101,7 +103,10 @@ async def handle_payment_created_with_retry(payment_id: str) -> None:
     """Process payment with exponential backoff retry.
 
     Retries up to MAX_RETRIES times with delays: 1s → 2s → 4s.
+    Non-retryable errors (e.g. payment not found) go straight to DLQ.
     After exhausting all retries, raises RejectMessage to send the message to DLQ.
+    RabbitMQ's x-delivery-limit=3 provides a safety net: if the consumer crashes
+    before calling RejectMessage(), the message is dead-lettered after 3 deliveries.
     """
     last_error: Exception | None = None
 
@@ -109,6 +114,13 @@ async def handle_payment_created_with_retry(payment_id: str) -> None:
         try:
             await handle_payment_created(payment_id)
             return  # success → message will be acked
+        except NON_RETRYABLE_ERRORS as e:
+            # Non-retryable: send straight to DLQ, no retries
+            logger.error(
+                "Non-retryable error, sending to DLQ immediately",
+                extra={"payment_id": payment_id, "error": str(e)},
+            )
+            raise RejectMessage() from e
         except Exception as e:
             last_error = e
             if attempt < MAX_RETRIES - 1:

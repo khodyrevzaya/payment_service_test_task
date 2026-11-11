@@ -15,6 +15,8 @@ from src.db.models import OutboxEvent
 
 logger = logging.getLogger(__name__)
 
+MAX_OUTBOX_ATTEMPTS = 3
+
 
 async def process_outbox() -> None:
     """Main outbox relay loop: poll pending events and publish to RabbitMQ."""
@@ -50,7 +52,14 @@ async def process_outbox() -> None:
                                 logger.info("Published outbox event", extra={"event_id": str(event.id), "payment_id": str(event.aggregate_id)})
                             except Exception as e:
                                 event.attempts += 1
-                                logger.error("Failed to publish outbox event", extra={"event_id": str(event.id), "error": str(e)})
+                                if event.attempts >= MAX_OUTBOX_ATTEMPTS:
+                                    event.status = OutboxStatus.dead
+                                    logger.error(
+                                        "Outbox event exhausted all attempts, marked as dead",
+                                        extra={"event_id": str(event.id), "attempts": event.attempts, "error": str(e)},
+                                    )
+                                else:
+                                    logger.error("Failed to publish outbox event", extra={"event_id": str(event.id), "error": str(e)})
 
                         await session.commit()
                     else:

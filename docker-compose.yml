@@ -1,23 +1,29 @@
 services:
   postgres:
     image: postgres:16-alpine
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: payment_db
-      POSTGRES_USER: payment_user
-      POSTGRES_PASSWORD: payment_pass
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U payment_user -d payment_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
-    #restart: unless-stopped
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -26,7 +32,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    #restart: unless-stopped
 
   migrate:
     build:
@@ -55,7 +60,6 @@ services:
         condition: service_completed_successfully
     env_file:
       - .env
-    #restart: unless-stopped
 
   consumer:
     build:
@@ -70,7 +74,6 @@ services:
         condition: service_completed_successfully
     env_file:
       - .env
-    #restart: unless-stopped
 
   outbox-relay:
     build:
@@ -85,7 +88,6 @@ services:
         condition: service_completed_successfully
     env_file:
       - .env
-    #restart: unless-stopped
 
 volumes:
   pgdata:

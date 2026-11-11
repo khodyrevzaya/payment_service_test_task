@@ -41,7 +41,7 @@ def upgrade() -> None:
     )
     op.execute(
         "DO $$ BEGIN "
-        "CREATE TYPE outbox_status_enum AS ENUM ('pending', 'published'); "
+        "CREATE TYPE outbox_status_enum AS ENUM ('pending', 'published', 'dead'); "
         "EXCEPTION WHEN duplicate_object THEN null; "
         "END $$"
     )
@@ -52,7 +52,7 @@ def upgrade() -> None:
     notification_status_enum = postgresql.ENUM(
         "pending", "delivered", "exhausted", name="notification_status_enum", create_type=False
     )
-    outbox_status_enum = postgresql.ENUM("pending", "published", name="outbox_status_enum", create_type=False)
+    outbox_status_enum = postgresql.ENUM("pending", "published", "dead", name="outbox_status_enum", create_type=False)
 
     # Create payments table
     op.create_table(
