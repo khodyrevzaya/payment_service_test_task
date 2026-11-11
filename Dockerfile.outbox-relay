@@ -1,0 +1,18 @@
+FROM python:3.12-slim
+
+RUN useradd --create-home --uid 1000 app
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir .
+
+COPY . .
+RUN chown -R app:app /app
+
+USER app
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+CMD ["python", "-m", "src.outbox_relay.app"]
