@@ -7,7 +7,7 @@ from faststream.rabbit import RabbitBroker
 
 from src.broker.topology import declare_topology, payments_exchange, payments_new_queue
 from src.config import settings
-from src.consumer.handler import handle_payment_created
+from src.consumer.handler import handle_payment_created_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ async def on_payment_created(payload: dict) -> None:
         logger.error("Missing payment_id in message", extra={"payload": payload})
         return
 
-    await handle_payment_created(payment_id)
+    await handle_payment_created_with_retry(payment_id)
 
 
 @app.after_startup

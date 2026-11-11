@@ -6,6 +6,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from faststream.exceptions import RejectMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,9 @@ from src.db.models import Payment
 from src.services.webhook import send_webhook
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 1  # seconds: 1s → 2s → 4s
 
 
 def _deterministic_outcome(payment_id: uuid.UUID) -> tuple[bool, float]:
@@ -38,7 +42,7 @@ async def handle_payment_created(payment_id: str) -> None:
 
         if payment is None:
             logger.error("Payment not found", extra={"payment_id": payment_id})
-            return
+            raise ValueError(f"Payment {payment_id} not found in database")
 
         # Idempotency check: if already terminal and webhook delivered, skip
         if payment.status in (PaymentStatus.succeeded, PaymentStatus.failed):
@@ -91,3 +95,42 @@ async def handle_payment_created(payment_id: str) -> None:
                 "notification": payment.notification_status.value if payment.notification_status else "none",
             },
         )
+
+
+async def handle_payment_created_with_retry(payment_id: str) -> None:
+    """Process payment with exponential backoff retry.
+
+    Retries up to MAX_RETRIES times with delays: 1s → 2s → 4s.
+    After exhausting all retries, raises RejectMessage to send the message to DLQ.
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            await handle_payment_created(payment_id)
+            return  # success → message will be acked
+        except Exception as e:
+            last_error = e
+            if attempt < MAX_RETRIES - 1:
+                delay = RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "Retrying payment processing",
+                    extra={
+                        "payment_id": payment_id,
+                        "attempt": attempt + 1,
+                        "max_retries": MAX_RETRIES,
+                        "delay": delay,
+                        "error": str(e),
+                    },
+                )
+                await asyncio.sleep(delay)
+
+    logger.error(
+        "Payment processing exhausted all retries, sending to DLQ",
+        extra={
+            "payment_id": payment_id,
+            "attempts": MAX_RETRIES,
+            "last_error": str(last_error),
+        },
+    )
+    raise RejectMessage()

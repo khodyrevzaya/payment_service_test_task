@@ -18,13 +18,12 @@ payments_dlx = RabbitExchange(
     durable=True,
 )
 
-# Main queue with DLX + retry limit (quorum queue for x-delivery-limit support)
+# Main queue with DLX (retry is handled in consumer handler, not via x-delivery-limit)
 payments_new_queue = RabbitQueue(
     "payments.new",
     durable=True,
     arguments={
         "x-queue-type": "quorum",
-        "x-delivery-limit": 3,
         "x-dead-letter-exchange": "payments.dlx",
         "x-dead-letter-routing-key": "payments.dlq",
     },
